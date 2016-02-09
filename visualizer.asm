@@ -3,6 +3,9 @@ INCLUDE "gbhw.asm"
 current_music_pause EQU $90
 music_pointer EQU $91
 done_flag EQU $93
+pcm_read_index EQU $94
+pcm_write_index EQU $95
+pcm_ram_start EQU $c000
 
 ; Reading these two undocumented registers  returns the current PCM value of the
 ; 4 APU channels in each of their nibbles.
@@ -13,8 +16,20 @@ SECTION "VBlank", ROM0[$40]
     jp VBlank
 
 SECTION "OAMInt", ROM0[$48]
-OAMInt:
-    ; Sum the four nibbles in reigsters PCM12 and PCM34
+    jp OAMInt
+
+SECTION "Timer", ROM0[$50]
+Timer::
+    ; Point HL to the write position
+    ld h, pcm_ram_start / $100
+    ldh a, [pcm_write_index]
+    ld l, a
+
+    ; Advance the index
+    inc a
+    ldh [pcm_write_index],  a
+
+    ; Sum the four nibbles in registers PCM12 and PCM34
     ldh a, [rPCM12]
     ld b, a
     ldh a, [rPCM34]
@@ -41,12 +56,9 @@ OAMInt:
     and $F
     add c
 
-    ; Negate
-    xor $FF
-    inc a
+    ; Store result to hl
+    ld [hl], a
 
-    ; Store in rSCX, to create a wave pattern
-    ldh [rSCX], a
     reti
 
 SECTION "Header", ROM0[$100]
@@ -66,15 +78,22 @@ _Start::
     ; Init the stack
     ld sp, $fffe
 
+    ; Init buffer pointers
+    xor a
+    ldh [pcm_write_index], a
+    ldh [pcm_read_index], a
+
     ; Other inits
     call LCDOff
     call LoadGraphics
     call InitSound
     call CreateMap
     call LoadPalette
+    call InitTimer
 
     ; Start Playing
-    jp InitMusic
+    call InitMusic
+    jp Main
 
 WaitFrame::
     ldh a, [rLY]
@@ -104,6 +123,14 @@ LCDOn::
     xor a
     ldh [rIF], a
     reti
+
+InitTimer::
+    ld a, $100-30 ; 262144 / 144*60 is about 30
+    ldh [rTIMA], a
+    ldh [rTMA], a
+    ld a, 5 ; Enabled, 262144
+    ldh [rTAC], a
+    ret
 
 InitSound::
     xor a
@@ -241,11 +268,35 @@ Tiles::
 
 TilesEnd::
 
-VBlank:
+VBlank::
+    ; Sync pointers
+    ldh a, [pcm_read_index]
+    ldh [pcm_write_index], a
     call HandleMusic
     reti
 
-InitMusic:
+OAMInt::
+    ; Point HL to the read position
+    ld h, pcm_ram_start / $100
+    ldh a, [pcm_read_index]
+    ld l, a
+
+    ; Advance the index
+    inc a
+    ldh [pcm_read_index],  a
+
+    ; Read
+    ld a, [hl]
+
+    ; Negate
+    xor $FF
+    inc a
+
+    ; Update SCX
+    ldh [rSCX], a
+    reti
+
+InitMusic::
     xor a
     ldh [done_flag], a
 
@@ -259,14 +310,15 @@ InitMusic:
     ldh [rIF], a
 
     ; Enable interrupts
-    ld a, 3
+    ld a, 7
     ldh [rIE], a
     ld a, 32
     ldh [rSTAT], a
     call LCDOn
+    ret
 
-; The main loop. HL will point to either a frame start, or a row start
-Main:
+; The main loop. We only operate inside interrupts, we just constantly halt.
+Main::
     halt
     jr Main
 
@@ -278,8 +330,8 @@ HandleMusic:
     ; stop this loop when it's non-zero, and cause an n-frame pause in the music
     ; until the next byte is written.  The second variable, done_flag, reset the
     ; music pointer to loop the song.
-    ; This function will never return without writing to current_music_pause.
-    push hl
+    ; This function will never return without  writing to current_music_pause or
+    ; the done_flag.
     ldh a, [music_pointer + 1]
     ld h, a
     ldh a, [music_pointer]
@@ -306,7 +358,6 @@ HandleMusic:
     ldh [music_pointer + 1], a
     ld a, l
     ldh [music_pointer], a
-    pop hl
     ret
 
 Music::
