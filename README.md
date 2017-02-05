@@ -6,5 +6,5 @@ GBVisualizer was designed to work on and tested on a Gameboy Color. PCM12 and PC
 
 Music for this demo is adapted from [my disassembly of Super Bomberman](https://github.com/LIJI32/superbomberman/tree/master/dboot/songs).
 
-This is how it looks on my (unreleased yet) emulator, supporting these two registers: <br/>
+This is how it looks on [SameBoy](https://sameboy.github.io/) ([Github](https://github.com/LIJI32/SameBoy)), which supports these two registers: <br/>
 ![Screenshot](screenshot.png?raw=true)
